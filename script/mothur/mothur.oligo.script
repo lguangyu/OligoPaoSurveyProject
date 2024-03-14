@@ -1,0 +1,92 @@
+#!/opt/mothur/1.45.3/bin/mothur
+
+#SBATCH -J AMPLICON_FOR_OLIGOTYPING
+#SBATCH -o sbatch.mothur.log
+#SBATCH -e sbatch.mothur.err
+#SBATCH -p short -N 1 -c 16
+#SBATCH --time 24:00:00 --mem 128GB
+
+# dir settings
+set.dir(input=., output=mothur.output)
+set.logfile(name=mothur.output/mothur.log)
+
+################################################################################
+# P1. assembly and dereplicate
+################################################################################
+# make contigs from paired end sequences
+make.contigs(file=mothur.input.list, processors=12)
+# make summary then filtering
+summary.seqs(fasta=current)
+screen.seqs(fasta=current, group=current, summary=current, maxambig=0, maxlength=275)
+# dereplicate sequences
+unique.seqs(fasta=current)
+# make sequence counting table for future summary use
+count.seqs(name=current, group=current)
+summary.seqs(count=current)
+
+################################################################################
+# P2. alignment
+################################################################################
+# align seqs to reference
+# NOTE: flip=t is by default on
+align.seqs(fasta=current, template=ref_db/align.fasta, flip=t)
+# this summary checks the alignment results
+# the start and end positions are important for later extraction
+summary.seqs(fasta=current, count=current)
+# extract alignment regions only using spotted range in above summary
+screen.seqs(fasta=current, count=current, summary=current, start=1976, end=11550, maxhomop=8)
+summary.seqs(fasta=current, count=current)
+# filter seqs that are overlapping the same range on reference
+# NOTE: vertical=T removes columns containing *ONLY* gap
+# NOTE: trump=. removes columns if any seq contains a gap
+# (trump=. is more strict than vertical=T)
+filter.seqs(fasta=current, vertical=T, trump=.)
+# find unique seqs in shared, overlapping range
+unique.seqs(fasta=current, count=current)
+summary.seqs(fasta=current, count=current)
+
+################################################################################
+# P3. remove chimeras
+################################################################################
+# pre.cluster hard clustering seqs with cluster diameter of <diffs>
+# in this case, maximum distances between seqs in a cluster is 2
+#pre.cluster(fasta=current, count=current, diffs=2)
+# remove chimeras using vsearch
+chimera.vsearch(fasta=current, count=current, dereplicate=t)
+# then remove chimeras from fasta based on vsearch results (accnos)
+remove.seqs(fasta=current, accnos=current)
+
+################################################################################
+# P4. taxonomy classification
+################################################################################
+# classification based on provided reference
+# NOTE: cutoff=80 sets the confidence to be at minimum 80%; any assignments
+#   below this treshold will not be reported (but are done); using cutoff=0 will
+#   force report all assignments
+classify.seqs(fasta=current, count=current, reference=ref_db/classif.ref, taxonomy=ref_db/classif.tax, cutoff=80)
+# remove unwanted linages
+remove.lineage(fasta=current, count=current, taxonomy=current, taxon=Chloroplast-Mitochondria-unknown-Eukaryota)
+#summary.tax(taxonomy=current, count=current)
+# [optional] assessing error rates if have mock community (internal control)
+# NOTE: change parameters accordingly:
+#   groups=Mock: group label of the mock community
+#   reference=HMP_MOCK.v35.fasta: reference of the mock community
+#get.groups(fasta=current, count=current, groups=Mock)
+#seq.error(fasta=current, count=current, reference=HMP_MOCK.v35.fasta, #    aligned=F)
+# may also with to remove the mock community in the final output
+#remove.groups(fasta=current, count=current, taxonomy=current, groups=Mock)
+
+################################################################################
+# P5. OTU making
+################################################################################
+# below approach is appropiate for large datasets, where a directly calculation
+# of distance matrix may be unfeasible
+# first split into clusters
+# NOTE: cutoff=0.03 means split clusters at 0.97 identity level (empirical)
+#cluster.split(fasta=current, count=current, taxonomy=current, splitmethod=classify, taxlevel=4, cutoff=0.03)
+# create count table for each splitted cluster
+#make.shared(list=current, count=current, label=0.03)
+# make otu table for each splitted cluster
+#classify.otu(list=current, count=current, taxonomy=current, label=0.03)
+# generate otu counts in each sample (group)
+#count.groups(shared=current)

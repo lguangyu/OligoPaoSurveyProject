@@ -1,0 +1,3 @@
+[submodule "script/otu_analysis_script"]
+	path = script/otu_analysis_script
+	url = https://github.com/lguangyu/MothurAmpliconTablePlot.git
